@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Statement Calendar</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">Personal finance utility</div>
+        <h1>Statement Calendar</h1>
+        <p class="subtitle">Track expected, available and processed statements in one place.</p>
+      </div>
+      <div class="topbar-actions">
+        <button id="todayBtn" class="btn secondary">Today</button>
+        <button id="exportBtn" class="btn secondary">Export statuses</button>
+      </div>
+    </header>
+
+    <section class="controls card">
+      <div class="control-group asof-group">
+        <label for="asOfDate">Evaluate as of</label>
+        <input type="date" id="asOfDate" />
+      </div>
+      <div class="control-group">
+        <label for="ownerFilter">Owner</label>
+        <select id="ownerFilter"></select>
+      </div>
+      <div class="control-group">
+        <label for="bankFilter">Institution</label>
+        <select id="bankFilter"></select>
+      </div>
+      <div class="control-group">
+        <label for="statusFilter">Status</label>
+        <select id="statusFilter"></select>
+      </div>
+      <div class="control-group grow">
+        <label for="searchBox">Search account</label>
+        <input type="search" id="searchBox" placeholder="Bank, card, account label..." />
+      </div>
+    </section>
+
+    <main class="main-grid">
+      <section class="card calendar-card">
+        <div class="calendar-header">
+          <button id="prevMonth" class="icon-btn" aria-label="Previous month">←</button>
+          <div>
+            <h2 id="monthTitle"></h2>
+            <div id="asOfSummary" class="muted small"></div>
+          </div>
+          <button id="nextMonth" class="icon-btn" aria-label="Next month">→</button>
+        </div>
+        <div class="weekdays">
+          <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+        </div>
+        <div id="calendarGrid" class="calendar-grid"></div>
+      </section>
+
+      <aside class="side-column">
+        <section class="card attention-card">
+          <div class="section-heading">
+            <div>
+              <div class="eyebrow">As of selected date</div>
+              <h2>Needs attention</h2>
+            </div>
+            <span id="attentionCount" class="count-badge">0</span>
+          </div>
+          <div id="attentionList" class="stack-list"></div>
+        </section>
+
+        <section class="card legend-card">
+          <h3>Status legend</h3>
+          <div id="legend" class="legend"></div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <dialog id="eventDialog" class="event-dialog">
+    <form method="dialog" class="dialog-shell">
+      <div class="dialog-header">
+        <div>
+          <div id="dialogEyebrow" class="eyebrow"></div>
+          <h2 id="dialogTitle"></h2>
+        </div>
+        <button class="icon-btn" value="cancel" aria-label="Close">×</button>
+      </div>
+      <div id="dialogBody" class="dialog-body"></div>
+      <div class="dialog-actions">
+        <label for="localStatusSelect">Local override</label>
+        <select id="localStatusSelect"></select>
+        <button id="saveLocalStatus" type="button" class="btn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="data/statements.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
