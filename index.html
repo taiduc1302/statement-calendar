@@ -4,25 +4,28 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Statement Calendar</title>
+  <meta name="description" content="A reusable local-first statement tracking calendar with rule-based predictions." />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <div class="eyebrow">Personal finance utility</div>
+        <div class="eyebrow">Reusable open-source mini app</div>
         <h1>Statement Calendar</h1>
-        <p class="subtitle">Track expected, available and processed statements in one place.</p>
+        <p class="subtitle">Track expected, likely, confirmed, uploaded and imported financial statements.</p>
       </div>
       <div class="topbar-actions">
         <button id="todayBtn" class="btn secondary">Today</button>
-        <button id="exportBtn" class="btn secondary">Export statuses</button>
+        <button id="exportBtn" class="btn secondary">Export local statuses</button>
       </div>
     </header>
 
+    <section class="dashboard" id="dashboard"></section>
+
     <section class="controls card">
-      <div class="control-group asof-group">
-        <label for="asOfDate">Evaluate as of</label>
+      <div class="control-group">
+        <label for="asOfDate">As-of date</label>
         <input type="date" id="asOfDate" />
       </div>
       <div class="control-group">
@@ -30,16 +33,24 @@
         <select id="ownerFilter"></select>
       </div>
       <div class="control-group">
-        <label for="bankFilter">Institution</label>
-        <select id="bankFilter"></select>
+        <label for="institutionFilter">Institution</label>
+        <select id="institutionFilter"></select>
+      </div>
+      <div class="control-group">
+        <label for="accountFilter">Account</label>
+        <select id="accountFilter"></select>
       </div>
       <div class="control-group">
         <label for="statusFilter">Status</label>
         <select id="statusFilter"></select>
       </div>
+      <div class="control-group">
+        <label for="cadenceFilter">Cadence</label>
+        <select id="cadenceFilter"></select>
+      </div>
       <div class="control-group grow">
-        <label for="searchBox">Search account</label>
-        <input type="search" id="searchBox" placeholder="Bank, card, account label..." />
+        <label for="searchBox">Search</label>
+        <input id="searchBox" type="search" placeholder="Owner, institution or account..." />
       </div>
     </section>
 
@@ -53,6 +64,7 @@
           </div>
           <button id="nextMonth" class="icon-btn" aria-label="Next month">→</button>
         </div>
+
         <div class="weekdays">
           <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
         </div>
@@ -64,7 +76,7 @@
           <div class="section-heading">
             <div>
               <div class="eyebrow">As of selected date</div>
-              <h2>Needs attention</h2>
+              <h2>Needs Attention</h2>
             </div>
             <span id="attentionCount" class="count-badge">0</span>
           </div>
@@ -77,6 +89,18 @@
         </section>
       </aside>
     </main>
+
+    <section class="card timeline-card">
+      <div class="section-heading timeline-heading">
+        <div>
+          <div class="eyebrow">History and gaps</div>
+          <h2>Account Timeline</h2>
+        </div>
+        <select id="timelineAccount"></select>
+      </div>
+      <div id="timelineMeta" class="muted small"></div>
+      <div id="timelineList" class="timeline-list"></div>
+    </section>
   </div>
 
   <dialog id="eventDialog" class="event-dialog">
@@ -98,6 +122,7 @@
   </dialog>
 
   <script src="data/statements.js"></script>
+  <script src="engine.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

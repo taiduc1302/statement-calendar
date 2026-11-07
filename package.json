@@ -1,0 +1,10 @@
+{
+  "name": "statement-calendar",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Reusable local-first statement calendar with rule-based predictions.",
+  "scripts": {
+    "test": "node tests/engine.test.js && node tests/privacy.test.js"
+  },
+  "license": "MIT"
+}

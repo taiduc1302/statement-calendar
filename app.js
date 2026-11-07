@@ -1,22 +1,26 @@
 (() => {
   const DATA = window.statementCalendarData;
+  const ENGINE = window.StatementCalendarEngine;
   const accountById = new Map(DATA.accounts.map(a => [a.id, a]));
   const ownerById = new Map(DATA.owners.map(o => [o.id, o]));
+
   const statusMeta = {
-    imported: { label: "Processed", color: "#1c8b55" },
-    uploaded: { label: "Uploaded", color: "#2d68c4" },
-    confirmed: { label: "Confirmed available", color: "#d75130" },
-    likely: { label: "Likely available", color: "#c48310" },
-    expected: { label: "Expected", color: "#718096" },
-    manual: { label: "Check manually", color: "#7a57b4" },
-    unknown: { label: "Unknown", color: "#8a94a6" }
+    expected: { label: "Expected", color: "#64748b" },
+    likely: { label: "Likely available", color: "#b7791f" },
+    confirmed: { label: "Confirmed", color: "#c2410c" },
+    uploaded: { label: "Uploaded", color: "#2563eb" },
+    imported: { label: "Imported", color: "#15803d" },
+    manual: { label: "Manual review", color: "#7e22ce" }
   };
 
   const els = {
+    dashboard: document.getElementById("dashboard"),
     asOfDate: document.getElementById("asOfDate"),
     ownerFilter: document.getElementById("ownerFilter"),
-    bankFilter: document.getElementById("bankFilter"),
+    institutionFilter: document.getElementById("institutionFilter"),
+    accountFilter: document.getElementById("accountFilter"),
     statusFilter: document.getElementById("statusFilter"),
+    cadenceFilter: document.getElementById("cadenceFilter"),
     searchBox: document.getElementById("searchBox"),
     calendarGrid: document.getElementById("calendarGrid"),
     monthTitle: document.getElementById("monthTitle"),
@@ -24,6 +28,9 @@
     attentionList: document.getElementById("attentionList"),
     attentionCount: document.getElementById("attentionCount"),
     legend: document.getElementById("legend"),
+    timelineAccount: document.getElementById("timelineAccount"),
+    timelineMeta: document.getElementById("timelineMeta"),
+    timelineList: document.getElementById("timelineList"),
     eventDialog: document.getElementById("eventDialog"),
     dialogEyebrow: document.getElementById("dialogEyebrow"),
     dialogTitle: document.getElementById("dialogTitle"),
@@ -31,7 +38,7 @@
     localStatusSelect: document.getElementById("localStatusSelect")
   };
 
-  let viewDate = new Date(DATA.meta.asOf + "T12:00:00");
+  let viewDate = firstOfMonth(ENGINE.parseDate(DATA.meta.asOf));
   let activeEvent = null;
   let localOverrides = loadOverrides();
 
@@ -47,59 +54,109 @@
 
   function wireEvents() {
     document.getElementById("prevMonth").addEventListener("click", () => {
-      viewDate = addMonths(viewDate, -1);
+      viewDate = firstOfMonth(ENGINE.addMonths(viewDate, -1));
       render();
     });
+
     document.getElementById("nextMonth").addEventListener("click", () => {
-      viewDate = addMonths(viewDate, 1);
+      viewDate = firstOfMonth(ENGINE.addMonths(viewDate, 1));
       render();
     });
+
     document.getElementById("todayBtn").addEventListener("click", () => {
-      const d = parseDate(DATA.meta.asOf);
-      viewDate = new Date(d.getFullYear(), d.getMonth(), 1);
-      els.asOfDate.value = DATA.meta.asOf;
+      const today = new Date();
+      els.asOfDate.value = ENGINE.iso(today);
+      viewDate = firstOfMonth(today);
       render();
     });
+
     document.getElementById("exportBtn").addEventListener("click", exportOverrides);
-    [els.asOfDate, els.ownerFilter, els.bankFilter, els.statusFilter, els.searchBox]
-      .forEach(el => el.addEventListener("input", render));
     document.getElementById("saveLocalStatus").addEventListener("click", saveLocalStatus);
+
+    [
+      els.asOfDate,
+      els.ownerFilter,
+      els.institutionFilter,
+      els.accountFilter,
+      els.statusFilter,
+      els.cadenceFilter,
+      els.searchBox
+    ].forEach(el => el.addEventListener("input", render));
+
+    els.timelineAccount.addEventListener("change", renderTimeline);
   }
 
   function populateFilters() {
-    els.ownerFilter.innerHTML =
-      '<option value="">All owners</option>' +
-      DATA.owners.map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join("");
+    els.ownerFilter.innerHTML = option("", "All owners") +
+      DATA.owners.map(o => option(o.id, o.name)).join("");
 
-    const banks = [...new Set(DATA.accounts.map(a => a.bank))].sort();
-    els.bankFilter.innerHTML =
-      '<option value="">All institutions</option>' +
-      banks.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join("");
+    const institutions = [...new Set(DATA.accounts.map(a => a.institution))].sort();
+    els.institutionFilter.innerHTML = option("", "All institutions") +
+      institutions.map(v => option(v, v)).join("");
 
-    els.statusFilter.innerHTML =
-      '<option value="">All statuses</option>' +
-      Object.entries(statusMeta)
-        .map(([k, v]) => `<option value="${k}">${escapeHtml(v.label)}</option>`)
-        .join("");
+    els.accountFilter.innerHTML = option("", "All accounts") +
+      DATA.accounts.map(a => option(a.id, accountLabel(a))).join("");
+
+    els.statusFilter.innerHTML = option("", "All statuses") +
+      Object.entries(statusMeta).map(([key, meta]) => option(key, meta.label)).join("");
+
+    const cadences = [...new Set(DATA.accounts.map(a => a.cadence))].sort();
+    els.cadenceFilter.innerHTML = option("", "All cadences") +
+      cadences.map(v => option(v, titleCase(v))).join("");
+
+    els.timelineAccount.innerHTML = DATA.accounts
+      .map(a => option(a.id, accountLabel(a)))
+      .join("");
 
     els.localStatusSelect.innerHTML =
-      '<option value="">Automatic</option>' +
+      option("", "Automatic") +
       ["confirmed", "uploaded", "imported", "manual"]
-        .map(k => `<option value="${k}">${escapeHtml(statusMeta[k].label)}</option>`)
+        .map(key => option(key, statusMeta[key].label))
         .join("");
   }
 
   function renderLegend() {
-    els.legend.innerHTML = ["imported", "uploaded", "confirmed", "likely", "expected", "manual"]
-      .map(k => `<div class="legend-item"><span class="legend-dot" style="--legend-color:${statusMeta[k].color}"></span>${escapeHtml(statusMeta[k].label)}</div>`)
-      .join("");
+    els.legend.innerHTML = Object.entries(statusMeta)
+      .map(([key, meta]) =>
+        `<div class="legend-item"><span class="legend-dot" style="--legend-color:${meta.color}"></span>${escapeHtml(meta.label)}</div>`
+      ).join("");
   }
 
   function render() {
-    const asOf = parseDate(els.asOfDate.value || DATA.meta.asOf);
-    const events = buildEventsForRange(addMonths(viewDate, -2), addMonths(viewDate, 2), asOf);
-    renderCalendar(events, asOf);
-    renderAttention(events, asOf);
+    const asOf = ENGINE.parseDate(els.asOfDate.value || DATA.meta.asOf);
+    const calendarFrom = ENGINE.addMonths(firstOfMonth(viewDate), -2);
+    const calendarTo = ENGINE.addMonths(lastOfMonth(viewDate), 2);
+    const historyFrom = ENGINE.addMonths(asOf, -15);
+    const historyTo = ENGINE.addMonths(asOf, 4);
+
+    const calendarEvents = ENGINE.buildEvents(DATA, calendarFrom, calendarTo, asOf, localOverrides);
+    const historyEvents = ENGINE.buildEvents(DATA, historyFrom, historyTo, asOf, localOverrides);
+
+    renderDashboard(historyEvents, asOf);
+    renderCalendar(calendarEvents, asOf);
+    renderAttention(historyEvents, asOf);
+    renderTimeline();
+  }
+
+  function renderDashboard(events, asOf) {
+    const filtered = events.filter(matchesFilters);
+    const summary = ENGINE.summarize(filtered, asOf);
+    const cards = [
+      ["Expected soon", summary.expectedSoon, "Within 30 days"],
+      ["Likely available", summary.likely, "Expected date has passed"],
+      ["Confirmed", summary.confirmed, "Notification or other evidence"],
+      ["Waiting for upload", summary.waitingForUpload, "Likely or confirmed"],
+      ["Imported", summary.imported, "Processing complete"],
+      ["Missing / gaps", summary.gaps, "Past tolerance or manual overdue"]
+    ];
+
+    els.dashboard.innerHTML = cards.map(([label, value, hint]) =>
+      `<article class="metric-card card">
+        <div class="metric-label">${escapeHtml(label)}</div>
+        <div class="metric-value">${value}</div>
+        <div class="metric-hint">${escapeHtml(hint)}</div>
+      </article>`
+    ).join("");
   }
 
   function renderCalendar(events, asOf) {
@@ -107,202 +164,160 @@
     const month = viewDate.getMonth();
     els.monthTitle.textContent = new Intl.DateTimeFormat("en-CA", { month: "long", year: "numeric" })
       .format(new Date(year, month, 1));
-    els.asOfSummary.textContent = `Evaluated as of ${fmtDate(asOf)} · dataset updated ${fmtDate(parseDate(DATA.meta.updatedAt))}`;
 
-    const first = new Date(year, month, 1);
+    els.asOfSummary.textContent =
+      `Evaluated as of ${fmtDate(asOf)} · demo data updated ${fmtDate(ENGINE.parseDate(DATA.meta.updatedAt))}`;
+
+    const first = new Date(year, month, 1, 12);
     const mondayIndex = (first.getDay() + 6) % 7;
-    const gridStart = addDays(first, -mondayIndex);
-    const cells = Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
+    const gridStart = ENGINE.addDays(first, -mondayIndex);
+    const days = Array.from({ length: 42 }, (_, i) => ENGINE.addDays(gridStart, i));
 
-    els.calendarGrid.innerHTML = cells.map(day => {
-      const key = iso(day);
-      const dayEvents = events.filter(e => iso(e.releaseDate) === key && matchesFilters(e));
+    const occurrences = calendarOccurrences(events.filter(matchesFilters));
+
+    els.calendarGrid.innerHTML = days.map(day => {
+      const key = ENGINE.iso(day);
+      const dayEvents = occurrences.filter(item => ENGINE.iso(item.date) === key);
       const outside = day.getMonth() !== month;
-      const today = key === DATA.meta.asOf;
-      const visible = dayEvents.slice(0, 4);
+      const selectedAsOf = key === ENGINE.iso(asOf);
 
-      return `<div class="day-cell ${outside ? "outside" : ""} ${today ? "today" : ""}">
-        <div class="day-number"><span>${day.getDate()}</span>${today ? '<span class="dot" title="Dataset date"></span>' : ""}</div>
+      return `<div class="day-cell ${outside ? "outside" : ""} ${selectedAsOf ? "asof-day" : ""}">
+        <div class="day-number">
+          <span>${day.getDate()}</span>
+          ${selectedAsOf ? '<span class="dot" title="Selected as-of date"></span>' : ""}
+        </div>
         <div class="day-events">
-          ${visible.map(eventChipHtml).join("")}
+          ${dayEvents.slice(0, 4).map(item => eventChipHtml(item.event, item.kind)).join("")}
           ${dayEvents.length > 4 ? `<div class="more-link">+${dayEvents.length - 4} more</div>` : ""}
         </div>
       </div>`;
     }).join("");
 
-    els.calendarGrid.querySelectorAll("[data-event-id]").forEach(el =>
-      el.addEventListener("click", () => openEvent(el.dataset.eventId, events))
+    els.calendarGrid.querySelectorAll("[data-event-id]").forEach(node =>
+      node.addEventListener("click", () => openEvent(node.dataset.eventId, events))
     );
   }
 
   function renderAttention(events, asOf) {
-    const items = events
-      .filter(matchesFilters)
-      .filter(e => e.releaseDate <= asOf)
-      .filter(e => ["confirmed", "likely", "manual"].includes(e.status))
-      .sort((a, b) => b.releaseDate - a.releaseDate);
-
+    const items = ENGINE.attentionEvents(events.filter(matchesFilters), asOf);
     els.attentionCount.textContent = items.length;
-    els.attentionList.innerHTML = items.length
-      ? items.map(e => {
-          const acc = accountById.get(e.accountId);
-          const status = statusMeta[e.status];
-          return `<div class="attention-item" data-attention-id="${e.id}">
-            <div class="row">
-              <div class="title">${escapeHtml(acc.bank)} · ${escapeHtml(acc.name)}${acc.suffix ? " •" + escapeHtml(acc.suffix) : ""}</div>
-              <span class="status-pill" style="--pill-color:${status.color}">${escapeHtml(status.label)}</span>
-            </div>
-            <div class="meta">${escapeHtml(ownerById.get(acc.owner)?.name || acc.owner)} · ${periodLabel(e)} · release ${fmtDate(e.releaseDate)}</div>
-          </div>`;
-        }).join("")
-      : '<div class="empty-state">Nothing currently needs attention.</div>';
 
-    els.attentionList.querySelectorAll("[data-attention-id]").forEach(el =>
-      el.addEventListener("click", () => openEvent(el.dataset.attentionId, events))
+    els.attentionList.innerHTML = items.length ? items.map(event => {
+      const account = accountById.get(event.accountId);
+      const meta = statusMeta[event.status];
+      const overdue = event.overdueDays ? `${event.overdueDays}d overdue` : "due now";
+      const gap = event.isGap ? " · gap" : "";
+      return `<button class="attention-item" data-attention-id="${escapeHtml(event.id)}">
+        <div class="row">
+          <div class="title">${escapeHtml(account.institution)} · ${escapeHtml(account.name)}</div>
+          <span class="status-pill" style="--pill-color:${meta.color}">${escapeHtml(meta.label)}</span>
+        </div>
+        <div class="meta">${escapeHtml(ownerName(account))} · ${escapeHtml(overdue)}${gap}</div>
+      </button>`;
+    }).join("") : '<div class="empty-state">Nothing currently needs attention.</div>';
+
+    els.attentionList.querySelectorAll("[data-attention-id]").forEach(node =>
+      node.addEventListener("click", () => openEvent(node.dataset.attentionId, events))
     );
   }
 
-  function eventChipHtml(e) {
-    const acc = accountById.get(e.accountId);
-    const meta = statusMeta[e.status] || statusMeta.unknown;
-    return `<button class="event-chip" data-event-id="${e.id}" style="--event-color:${meta.color}" title="${escapeHtml(meta.label)}">
-      <strong>${escapeHtml(acc.bank)} ${acc.suffix ? "•" + escapeHtml(acc.suffix) : escapeHtml(acc.name)}</strong>
-      <span>${escapeHtml(ownerById.get(acc.owner)?.name || acc.owner)} · ${shortPeriodLabel(e)}</span>
+  function renderTimeline() {
+    const accountId = els.timelineAccount.value || DATA.accounts[0]?.id;
+    const account = accountById.get(accountId);
+    if (!account) return;
+
+    const asOf = ENGINE.parseDate(els.asOfDate.value || DATA.meta.asOf);
+    const from = ENGINE.addMonths(asOf, -15);
+    const to = ENGINE.addMonths(asOf, 3);
+    const events = ENGINE.buildEvents(DATA, from, to, asOf, localOverrides)
+      .filter(e => e.accountId === accountId)
+      .sort((a, b) => (b.periodEnd || b.calendarDate) - (a.periodEnd || a.calendarDate));
+
+    els.timelineMeta.textContent =
+      `${ownerName(account)} · ${account.institution} · ${titleCase(account.cadence)} · ${titleCase(account.confidence)} confidence · ${ENGINE.ruleLabel(account)}`;
+
+    els.timelineList.innerHTML = events.length ? events.map(event => {
+      const meta = statusMeta[event.status];
+      const gapLabel = event.isGap
+        ? '<span class="gap-badge">Missing / gap</span>'
+        : event.manualOverdue
+          ? '<span class="gap-badge">Manual overdue</span>'
+          : "";
+
+      return `<button class="timeline-row" data-timeline-event="${escapeHtml(event.id)}">
+        <div>
+          <strong>${escapeHtml(periodLabel(event))}</strong>
+          <div class="muted small">
+            expected ${fmtOptionalDate(event.expectedReleaseDate)}
+            ${event.actualReleaseDate ? ` · actual ${fmtDate(event.actualReleaseDate)}` : ""}
+          </div>
+        </div>
+        <div class="timeline-status">
+          ${gapLabel}
+          <span class="status-pill" style="--pill-color:${meta.color}">${escapeHtml(meta.label)}</span>
+        </div>
+      </button>`;
+    }).join("") : '<div class="empty-state">No statement history in the selected window.</div>';
+
+    els.timelineList.querySelectorAll("[data-timeline-event]").forEach(node =>
+      node.addEventListener("click", () => openEvent(node.dataset.timelineEvent, events))
+    );
+  }
+
+  function calendarOccurrences(events) {
+    return events.flatMap(event => {
+      const expected = event.expectedReleaseDate;
+      const actual = event.actualReleaseDate;
+
+      if (actual && expected && ENGINE.iso(actual) !== ENGINE.iso(expected)) {
+        return [
+          { event, date: expected, kind: "expected date" },
+          { event, date: actual, kind: "actual date" }
+        ];
+      }
+
+      return [{
+        event,
+        date: actual || expected || event.calendarDate,
+        kind: actual ? "actual date" : "expected date"
+      }];
+    }).filter(item => item.date);
+  }
+
+  function eventChipHtml(event, occurrenceKind = "expected date") {
+    const account = accountById.get(event.accountId);
+    const meta = statusMeta[event.status];
+    const marker = event.isGap ? " · gap" : "";
+    const expectedClass = occurrenceKind === "expected date" && event.actualReleaseDate ? " expected-occurrence" : "";
+
+    return `<button class="event-chip${expectedClass}" data-event-id="${escapeHtml(event.id)}" style="--event-color:${meta.color}">
+      <strong>${escapeHtml(ownerName(account))} · ${escapeHtml(account.institution)}</strong>
+      <span>${escapeHtml(account.name)} · ${escapeHtml(occurrenceKind)} · ${escapeHtml(meta.label)}${marker}</span>
     </button>`;
   }
 
-  function buildEventsForRange(from, to, asOf) {
-    const generated = [];
-    DATA.accounts.forEach(acc => generated.push(...generateAccountEvents(acc, from, to)));
+  function matchesFilters(event) {
+    const account = accountById.get(event.accountId);
+    if (!account) return false;
 
-    const actualByKey = new Map();
-    DATA.statements.forEach(s => {
-      actualByKey.set(statementKey(s.accountId, s.periodEnd, s.expectedReleaseDate), s);
-    });
+    if (els.ownerFilter.value && account.owner !== els.ownerFilter.value) return false;
+    if (els.institutionFilter.value && account.institution !== els.institutionFilter.value) return false;
+    if (els.accountFilter.value && account.id !== els.accountFilter.value) return false;
+    if (els.statusFilter.value && event.status !== els.statusFilter.value) return false;
+    if (els.cadenceFilter.value && account.cadence !== els.cadenceFilter.value) return false;
 
-    const merged = [];
-    generated.forEach(g => {
-      const key = statementKey(
-        g.accountId,
-        g.periodEnd ? iso(g.periodEnd) : null,
-        iso(g.releaseDate)
-      );
-      const actual = actualByKey.get(key);
-      merged.push(actual ? normalizeActual(actual, asOf) : resolveGeneratedStatus(g, asOf));
-    });
-
-    DATA.statements.forEach(s => {
-      const normalized = normalizeActual(s, asOf);
-      if (normalized.releaseDate < from || normalized.releaseDate > addMonths(to, 1)) return;
-      if (!merged.some(e => e.id === normalized.id)) merged.push(normalized);
-    });
-
-    return merged.map(applyOverride).sort((a, b) => a.releaseDate - b.releaseDate);
-  }
-
-  function generateAccountEvents(acc, from, to) {
-    const rule = acc.rule || { type: "manual" };
-    const out = [];
-    if (rule.type === "manual") return out;
-
-    const cursor = new Date(from.getFullYear(), from.getMonth() - 1, 1);
-    const endCursor = new Date(to.getFullYear(), to.getMonth() + 1, 1);
-
-    while (cursor <= endCursor) {
-      const y = cursor.getFullYear();
-      const m = cursor.getMonth();
-      let event = null;
-
-      if (rule.type === "calendarMonth") {
-        event = makeGeneratedEvent(
-          acc,
-          new Date(y, m, 1),
-          new Date(y, m + 1, 0),
-          new Date(y, m + 1, rule.releaseDay || 2)
-        );
-      }
-
-      if (rule.type === "fixedRange") {
-        const periodEnd = safeDate(y, m, rule.endDay);
-        const startMonth = rule.startDay > rule.endDay ? m - 1 : m;
-        event = makeGeneratedEvent(
-          acc,
-          safeDate(y, startMonth, rule.startDay),
-          periodEnd,
-          safeDate(y, m, rule.releaseDay || rule.endDay + 1)
-        );
-      }
-
-      if (rule.type === "releaseDayOnly") {
-        event = makeGeneratedEvent(acc, null, null, safeDate(y, m, rule.releaseDay || 27));
-      }
-
-      if (rule.type === "quarterly" && [2, 5, 8, 11].includes(m)) {
-        event = makeGeneratedEvent(
-          acc,
-          new Date(y, m - 2, 1),
-          new Date(y, m + 1, 0),
-          new Date(y, m + 1, rule.releaseDay || 3)
-        );
-      }
-
-      if (event && event.releaseDate >= from && event.releaseDate <= addMonths(to, 1)) {
-        out.push(event);
-      }
-      cursor.setMonth(cursor.getMonth() + 1);
+    const query = els.searchBox.value.trim().toLowerCase();
+    if (query) {
+      const haystack = [
+        ownerName(account),
+        account.institution,
+        account.name,
+        account.suffix,
+        account.cadence
+      ].join(" ").toLowerCase();
+      if (!haystack.includes(query)) return false;
     }
-    return out;
-  }
 
-  function makeGeneratedEvent(acc, periodStart, periodEnd, releaseDate) {
-    const token = periodEnd ? iso(periodEnd) : iso(releaseDate);
-    return {
-      id: `pred-${acc.id}-${token}`,
-      accountId: acc.id,
-      periodStart,
-      periodEnd,
-      releaseDate,
-      status: "expected",
-      source: "cycle rule",
-      generated: true
-    };
-  }
-
-  function normalizeActual(s, asOf) {
-    const acc = accountById.get(s.accountId);
-    const releaseDate = parseDate(s.actualReleaseDate || s.expectedReleaseDate);
-    const periodStart = s.periodStart ? parseDate(s.periodStart) : null;
-    const periodEnd = s.periodEnd ? parseDate(s.periodEnd) : null;
-    let status = s.status || "unknown";
-    if (!["imported", "uploaded", "confirmed"].includes(status)) {
-      status = resolvePredictedStatus(acc, releaseDate, asOf);
-    }
-    return { ...s, periodStart, periodEnd, releaseDate, status, generated: false };
-  }
-
-  function resolveGeneratedStatus(e, asOf) {
-    const acc = accountById.get(e.accountId);
-    return { ...e, status: resolvePredictedStatus(acc, e.releaseDate, asOf) };
-  }
-
-  function resolvePredictedStatus(acc, releaseDate, asOf) {
-    if (releaseDate > asOf) return "expected";
-    if (acc.rule?.type === "manual" || acc.confidence === "low") return "manual";
-    return "likely";
-  }
-
-  function matchesFilters(e) {
-    const acc = accountById.get(e.accountId);
-    if (!acc) return false;
-    if (els.ownerFilter.value && acc.owner !== els.ownerFilter.value) return false;
-    if (els.bankFilter.value && acc.bank !== els.bankFilter.value) return false;
-    if (els.statusFilter.value && e.status !== els.statusFilter.value) return false;
-
-    const q = els.searchBox.value.trim().toLowerCase();
-    if (q) {
-      const haystack = `${acc.bank} ${acc.name} ${acc.suffix} ${ownerById.get(acc.owner)?.name || ""}`.toLowerCase();
-      if (!haystack.includes(q)) return false;
-    }
     return true;
   }
 
@@ -310,19 +325,24 @@
     activeEvent = events.find(e => e.id === id);
     if (!activeEvent) return;
 
-    const acc = accountById.get(activeEvent.accountId);
-    const stat = statusMeta[activeEvent.status] || statusMeta.unknown;
+    const account = accountById.get(activeEvent.accountId);
+    const meta = statusMeta[activeEvent.status];
 
-    els.dialogEyebrow.textContent = `${ownerById.get(acc.owner)?.name || acc.owner} · ${acc.bank}`;
-    els.dialogTitle.textContent = `${acc.name}${acc.suffix ? " •" + acc.suffix : ""}`;
+    els.dialogEyebrow.textContent = `${ownerName(account)} · ${account.institution}`;
+    els.dialogTitle.textContent = `${account.name}${account.suffix ? ` •${account.suffix}` : ""}`;
+
     els.dialogBody.innerHTML = [
-      detail("Status", `<span class="status-pill" style="--pill-color:${stat.color}">${escapeHtml(stat.label)}</span>`),
-      detail("Statement period", periodLabel(activeEvent)),
-      detail("Release date", fmtDate(activeEvent.releaseDate)),
-      detail("Cadence", cadenceLabel(acc.cadence)),
-      detail("Prediction confidence", confidenceLabel(acc.confidence)),
-      detail("Status source", escapeHtml(activeEvent.source || "cycle rule")),
-      detail("Notes", escapeHtml(acc.notes || "—"))
+      detail("Status", `<span class="status-pill" style="--pill-color:${meta.color}">${escapeHtml(meta.label)}</span>`),
+      detail("Statement period", escapeHtml(periodLabel(activeEvent))),
+      detail("Expected release", fmtOptionalDate(activeEvent.expectedReleaseDate)),
+      detail("Actual release", fmtOptionalDate(activeEvent.actualReleaseDate)),
+      detail("Confidence", escapeHtml(titleCase(account.confidence))),
+      detail("Source / reason", escapeHtml(activeEvent.source || ENGINE.ruleLabel(account))),
+      detail("Cadence", escapeHtml(titleCase(account.cadence))),
+      detail("Prediction rule", escapeHtml(ENGINE.ruleLabel(account))),
+      detail("Tolerance", `${activeEvent.toleranceDays || 0} day(s)`),
+      detail("Gap state", activeEvent.isGap ? "Missing / gap detected" : activeEvent.manualOverdue ? "Manual review overdue" : "No gap detected"),
+      detail("Notes", escapeHtml(activeEvent.notes || account.notes || "—"))
     ].join("");
 
     els.localStatusSelect.value = localOverrides[activeEvent.id]?.status || "";
@@ -332,17 +352,13 @@
   function saveLocalStatus() {
     if (!activeEvent) return;
     const status = els.localStatusSelect.value;
+
     if (!status) delete localOverrides[activeEvent.id];
-    else localOverrides[activeEvent.id] = { status, updatedAt: iso(new Date()) };
+    else localOverrides[activeEvent.id] = { status, updatedAt: new Date().toISOString() };
 
     localStorage.setItem("statement-calendar-overrides", JSON.stringify(localOverrides));
     els.eventDialog.close();
     render();
-  }
-
-  function applyOverride(e) {
-    const override = localOverrides[e.id];
-    return override?.status ? { ...e, status: override.status, localOverride: true } : e;
   }
 
   function loadOverrides() {
@@ -368,74 +384,58 @@
     URL.revokeObjectURL(url);
   }
 
-  function statementKey(accountId, periodEnd, releaseDate) {
-    return `${accountId}|${periodEnd || "unknown"}|${releaseDate || "unknown"}`;
+  function accountLabel(account) {
+    return `${account.institution} · ${account.name}${account.suffix ? ` •${account.suffix}` : ""}`;
   }
 
-  function detail(key, value) {
-    return `<dl class="detail-row"><dt>${escapeHtml(key)}</dt><dd>${value}</dd></dl>`;
+  function ownerName(account) {
+    return ownerById.get(account.owner)?.name || account.owner;
   }
 
-  function periodLabel(e) {
-    if (!e.periodStart || !e.periodEnd) return "Exact period should be confirmed from source statement";
-    return `${fmtDate(e.periodStart)} — ${fmtDate(e.periodEnd)}`;
+  function periodLabel(event) {
+    if (!event.periodStart || !event.periodEnd) return "Period not reliably known";
+    return `${fmtDate(event.periodStart)} — ${fmtDate(event.periodEnd)}`;
   }
 
-  function shortPeriodLabel(e) {
-    if (!e.periodStart || !e.periodEnd) return "period pending";
-    return `${shortDate(e.periodStart)}–${shortDate(e.periodEnd)}`;
+  function fmtDate(date) {
+    return new Intl.DateTimeFormat("en-CA", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    }).format(date);
   }
 
-  function cadenceLabel(value) {
-    return ({ monthly: "Monthly", quarterly: "Quarterly", unknown: "Not confirmed" })[value] || value;
+  function fmtOptionalDate(date) {
+    return date ? fmtDate(date) : "—";
   }
 
-  function confidenceLabel(value) {
-    return ({ high: "High", medium: "Medium", low: "Low" })[value] || value;
+  function detail(label, value) {
+    return `<dl class="detail-row"><dt>${escapeHtml(label)}</dt><dd>${value}</dd></dl>`;
   }
 
-  function fmtDate(d) {
-    return new Intl.DateTimeFormat("en-CA", { day: "2-digit", month: "short", year: "numeric" }).format(d);
+  function titleCase(value = "") {
+    return String(value).replace(/(^|[-_ ])([a-z])/g, (_, lead, char) => `${lead}${char.toUpperCase()}`);
   }
 
-  function shortDate(d) {
-    return new Intl.DateTimeFormat("en-CA", { day: "2-digit", month: "short" }).format(d);
+  function firstOfMonth(date) {
+    return new Date(date.getFullYear(), date.getMonth(), 1, 12);
   }
 
-  function parseDate(s) {
-    return new Date(`${s}T12:00:00`);
+  function lastOfMonth(date) {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0, 12);
   }
 
-  function iso(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
-
-  function safeDate(year, month, day) {
-    return new Date(year, month, Math.min(day, new Date(year, month + 1, 0).getDate()));
-  }
-
-  function addDays(d, n) {
-    const x = new Date(d);
-    x.setDate(x.getDate() + n);
-    return x;
-  }
-
-  function addMonths(d, n) {
-    const x = new Date(d);
-    x.setMonth(x.getMonth() + n);
-    return x;
+  function option(value, label) {
+    return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
   }
 
   function escapeHtml(value = "") {
-    return String(value).replace(/[&<>'"]/g, c => ({
+    return String(value).replace(/[&<>'"]/g, char => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       "'": "&#39;",
       '"': "&quot;"
-    })[c]);
+    })[char]);
   }
 })();
